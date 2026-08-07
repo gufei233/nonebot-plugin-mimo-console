@@ -1310,6 +1310,9 @@ async function manageDependency(action, name, button) {
 
 function configGroup(key) {
   if (key.startsWith("MIMO_CONSOLE_")) return "Mimo Console";
+  if (["PIP_INDEX_URL", "PLAYWRIGHT_DOWNLOAD_HOST", "NAG_DEBIAN_MIRROR"].includes(key)) {
+    return "构建下载源";
+  }
   if (["DRIVER", "HOST", "PORT", "ENVIRONMENT", "LOG_LEVEL", "SUPERUSERS", "COMMAND_START", "COMMAND_SEP"].includes(key)) {
     return "NoneBot 核心";
   }

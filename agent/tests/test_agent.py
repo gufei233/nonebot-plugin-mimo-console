@@ -76,6 +76,27 @@ class AgentConfigTests(unittest.TestCase):
         self.assertEqual(instance.service, "bot")
         self.assertEqual(instance.image_repository, "local/personal-bot")
         self.assertEqual(instance.environment_file, instance.project_root / ".env.prod")
+        self.assertEqual(instance.build_args, ())
+
+    def test_loads_and_validates_build_args(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            config_path = self.make_config(Path(temp))
+            raw = json.loads(config_path.read_text(encoding="utf-8"))
+            raw["instances"]["personal"]["build_args"] = [
+                "PIP_INDEX_URL",
+                "NAG_DEBIAN_MIRROR",
+            ]
+            config_path.write_text(json.dumps(raw), encoding="utf-8")
+            instance = AgentConfig.load(config_path).instances["personal"]
+            self.assertEqual(
+                instance.build_args,
+                ("PIP_INDEX_URL", "NAG_DEBIAN_MIRROR"),
+            )
+
+            raw["instances"]["personal"]["build_args"] = ["VALID", "bad-name"]
+            config_path.write_text(json.dumps(raw), encoding="utf-8")
+            with self.assertRaisesRegex(ConfigError, "无效环境变量名"):
+                AgentConfig.load(config_path)
 
     @unittest.skipIf(os.name == "nt", "Agent defaults are Linux-only paths")
     def test_default_socket_uses_stable_mount_directory(self) -> None:
@@ -513,6 +534,34 @@ class DeploymentTransactionTests(unittest.IsolatedAsyncioTestCase):
         )
         store = OperationStore(config.state_dir / "operations.sqlite3")
         return instance, DeploymentManager(config, store), store
+
+    async def test_build_passes_allowlisted_environment_values_as_build_args(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            instance, manager, _ = self.make_runtime(root)
+            instance = replace(
+                instance,
+                build_args=(
+                    "PIP_INDEX_URL",
+                    "PLAYWRIGHT_DOWNLOAD_HOST",
+                    "MISSING_VALUE",
+                ),
+            )
+            instance.environment_file.write_text(
+                "PIP_INDEX_URL=https://mirror.example/simple/\n"
+                "PLAYWRIGHT_DOWNLOAD_HOST=\n"
+                "UNLISTED=value\n",
+                encoding="utf-8",
+            )
+            command = AsyncMock(return_value="built")
+            with patch("mimo_console_agent.manager.run_command", command):
+                await manager._build(instance, instance.project_root, "local/bot:test")
+
+            arguments = command.await_args.args[0]
+            self.assertIn("PIP_INDEX_URL=https://mirror.example/simple/", arguments)
+            self.assertIn("PLAYWRIGHT_DOWNLOAD_HOST=", arguments)
+            self.assertNotIn("UNLISTED=value", arguments)
+            self.assertFalse(any(item.startswith("MISSING_VALUE=") for item in arguments))
 
     async def test_success_commits_and_marks_operation_succeeded(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

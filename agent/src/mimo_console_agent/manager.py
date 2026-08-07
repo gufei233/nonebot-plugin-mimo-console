@@ -28,6 +28,7 @@ from .environment import (
     EnvironmentError,
     list_environment_backups,
     read_environment,
+    read_environment_values,
     restore_environment,
     update_environment,
 )
@@ -1255,16 +1256,25 @@ class DeploymentManager:
     async def _build(self, instance: InstanceConfig, work: Path, image: str) -> str:
         dockerfile = self._stage_relative(instance.dockerfile, instance, work)
         context = self._stage_relative(instance.build_context, instance, work)
+        command = [
+            self.config.docker_bin,
+            "build",
+            "--file",
+            str(dockerfile),
+            "--tag",
+            image,
+        ]
+        if instance.build_args:
+            try:
+                environment = read_environment_values(instance.environment_file)
+            except (OSError, EnvironmentError) as exc:
+                raise AgentError(str(exc)) from exc
+            for key in instance.build_args:
+                if key in environment:
+                    command.extend(["--build-arg", f"{key}={environment[key]}"])
+        command.append(str(context))
         return await run_command(
-            [
-                self.config.docker_bin,
-                "build",
-                "--file",
-                str(dockerfile),
-                "--tag",
-                image,
-                str(context),
-            ],
+            command,
             cwd=work,
             timeout=instance.build_timeout,
         )

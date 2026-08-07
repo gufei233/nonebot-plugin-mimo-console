@@ -86,6 +86,20 @@ def read_environment(path: Path) -> list[EnvironmentEntry]:
     return entries
 
 
+def read_environment_values(path: Path) -> dict[str, str]:
+    """Read effective dotenv values without masking for internal execution."""
+    values: dict[str, str] = {}
+    for raw in _read_text(path).splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        if KEY_RE.fullmatch(key):
+            values[key] = value
+    return values
+
+
 def _sanitize_updates(updates: dict[str, object]) -> dict[str, str]:
     if len(updates) > MAX_ENV_ITEMS:
         raise EnvironmentError(f"一次最多更新 {MAX_ENV_ITEMS} 个配置项")

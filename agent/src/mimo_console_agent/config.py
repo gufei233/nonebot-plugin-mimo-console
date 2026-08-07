@@ -12,6 +12,7 @@ SAFE_SERVICE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 SAFE_IMAGE_RE = re.compile(
     r"^[A-Za-z0-9][A-Za-z0-9._/-]{0,254}(?::[A-Za-z0-9][A-Za-z0-9._-]{0,127})?$"
 )
+SAFE_ENV_KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
 class ConfigError(ValueError):
@@ -87,6 +88,7 @@ class InstanceConfig:
     override_file: Path
     environment_file: Path
     health_url: str
+    build_args: tuple[str, ...] = ()
     health_timeout: int = 120
     build_timeout: int = 1800
     deploy_timeout: int = 300
@@ -166,6 +168,17 @@ class InstanceConfig:
             1,
             100,
         )
+        raw_build_args = raw.get("build_args", [])
+        if not isinstance(raw_build_args, list) or len(raw_build_args) > 32:
+            raise ConfigError("build_args 必须是最多包含 32 项的列表")
+        build_args: list[str] = []
+        for item in raw_build_args:
+            key = str(item).strip()
+            if not SAFE_ENV_KEY_RE.fullmatch(key):
+                raise ConfigError(f"build_args 包含无效环境变量名：{key}")
+            if key in build_args:
+                raise ConfigError(f"build_args 包含重复环境变量名：{key}")
+            build_args.append(key)
         return cls(
             instance_id=instance_id,
             token_file=token_file,
@@ -179,6 +192,7 @@ class InstanceConfig:
             override_file=override_file,
             environment_file=environment_file,
             health_url=health_url,
+            build_args=tuple(build_args),
             health_timeout=health_timeout,
             build_timeout=build_timeout,
             deploy_timeout=deploy_timeout,
